@@ -212,8 +212,7 @@ npx cdk destroy
 ```
 ├── deploy.sh               # Deployment script
 ├── lambda-functions/       # TypeScript Lambda functions
-│   ├── src/                # Source code
-│   └── dist/               # Compiled output (gitignored)
+│   └── src/                # Source code
 ├── file-manager-cdk/       # CDK infrastructure
 │   ├── lib/                # Stack definitions
 │   └── bin/                # CDK app entry point
