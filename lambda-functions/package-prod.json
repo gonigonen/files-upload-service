@@ -1,7 +1,7 @@
 {
   "name": "file-upload-lambda-functions",
   "version": "1.0.0",
-  "description": "Lambda functions for file upload service",
+  "description": "Lambda functions for serverless file upload service",
   "main": "upload.js",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.400.0",

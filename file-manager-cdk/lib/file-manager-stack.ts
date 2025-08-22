@@ -7,13 +7,13 @@ import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
-export class FileUploadStack extends cdk.Stack {
+export class FileManagerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Create S3 bucket for file uploads
-    const bucket = new s3.Bucket(this, 'FileUploadsBucket', {
-      bucketName: `file-uploads-${this.account}-${this.region}`,
+    // Create S3 bucket for file storage
+    const bucket = new s3.Bucket(this, 'FileManagerBucket', {
+      bucketName: `file-manager-${this.account}-${this.region}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       cors: [
@@ -41,13 +41,12 @@ export class FileUploadStack extends cdk.Stack {
     const uploadLambda = new lambda.Function(this, 'FileUploadFunction', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'upload.handler',
-      code: lambda.Code.fromAsset('../file-upload-api/dist/lambda'),
+      code: lambda.Code.fromAsset('../lambda-functions/dist'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       environment: {
         DYNAMODB_TABLE_NAME: metadataTable.tableName,
         S3_BUCKET_NAME: bucket.bucketName,
-        AWS_REGION: this.region,
       },
     });
 
@@ -55,11 +54,21 @@ export class FileUploadStack extends cdk.Stack {
     const metadataLambda = new lambda.Function(this, 'MetadataRetrievalFunction', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'metadata.handler',
-      code: lambda.Code.fromAsset('../file-upload-api/dist/lambda'),
+      code: lambda.Code.fromAsset('../lambda-functions/dist'),
       timeout: cdk.Duration.seconds(30),
       environment: {
         DYNAMODB_TABLE_NAME: metadataTable.tableName,
-        AWS_REGION: this.region,
+      },
+    });
+
+    // Lambda function for listing files API
+    const listFilesLambda = new lambda.Function(this, 'ListFilesFunction', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'list-files.handler',
+      code: lambda.Code.fromAsset('../lambda-functions/dist'),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        DYNAMODB_TABLE_NAME: metadataTable.tableName,
       },
     });
 
@@ -67,13 +76,12 @@ export class FileUploadStack extends cdk.Stack {
     const processingLambda = new lambda.Function(this, 'FileProcessingFunction', {
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'processor.handler',
-      code: lambda.Code.fromAsset('../file-upload-api/dist/lambda'),
+      code: lambda.Code.fromAsset('../lambda-functions/dist'),
       timeout: cdk.Duration.minutes(5),
       memorySize: 1024,
       environment: {
         DYNAMODB_TABLE_NAME: metadataTable.tableName,
         S3_BUCKET_NAME: bucket.bucketName,
-        AWS_REGION: this.region,
       },
     });
 
@@ -82,6 +90,7 @@ export class FileUploadStack extends cdk.Stack {
     bucket.grantRead(processingLambda);
     metadataTable.grantReadWriteData(uploadLambda);
     metadataTable.grantReadData(metadataLambda);
+    metadataTable.grantReadData(listFilesLambda);
     metadataTable.grantReadWriteData(processingLambda);
 
     // S3 event notification to trigger processing Lambda
@@ -91,19 +100,23 @@ export class FileUploadStack extends cdk.Stack {
     );
 
     // Create API Gateway
-    const api = new apigateway.RestApi(this, 'FileUploadApi', {
-      restApiName: 'File Upload Service',
-      description: 'API for file uploads and metadata retrieval',
+    const api = new apigateway.RestApi(this, 'FileManagerApi', {
+      restApiName: 'File Manager Service',
+      description: 'API for file management and metadata operations',
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
-        allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key'],
+        allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key', 'X-Amz-Security-Token'],
       },
     });
 
     // Upload endpoint
     const uploadIntegration = new apigateway.LambdaIntegration(uploadLambda);
     api.root.addResource('upload').addMethod('POST', uploadIntegration);
+
+    // Files endpoint for listing
+    const filesIntegration = new apigateway.LambdaIntegration(listFilesLambda);
+    api.root.addResource('files').addMethod('GET', filesIntegration);
 
     // Metadata endpoint
     const metadataResource = api.root.addResource('metadata');

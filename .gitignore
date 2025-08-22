@@ -5,8 +5,6 @@ yarn-debug.log*
 yarn-error.log*
 
 # CDK compiled files (but allow Lambda functions)
-file-upload-cdk/**/*.js
-file-upload-cdk/**/*.d.ts
 cdk.out/
 .cdk.staging/
 
@@ -38,8 +36,9 @@ test-*.pdf
 test-*.jpg
 test-*.png
 
-# Build outputs (but allow Lambda dist)
+# Build outputs
 build/
+lambda-functions/dist/
 
 # AWS
 .aws/
