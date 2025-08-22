@@ -210,8 +210,8 @@ npx cdk destroy
 ## 📚 Project Structure
 
 ```
-├── deploy.sh                 # Deployment script
-├── lambda-functions/        # TypeScript Lambda functions
+├── deploy.sh               # Deployment script
+├── lambda-functions/       # TypeScript Lambda functions
 │   ├── src/                # Source code
 │   └── dist/               # Compiled output (gitignored)
 ├── file-manager-cdk/       # CDK infrastructure
