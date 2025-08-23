@@ -1,37 +1,40 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { 
+  createSuccessResponse, 
+  createInternalError,
+} from './utils/responses';
+import { createLogger } from './utils/logger';
+import {
+  FileListItem,
+  ListFilesResponse,
+  FileStatus,
+  isValidFileStatus
+} from './types';
 
 // Initialize AWS clients
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoDbClient);
 
-// Types
-interface FileListItem {
-    file_id: string;
-    file_name: string;
-    upload_date: string;
-    file_size: number;
-    status: string;
-    content_type?: string;
-}
-
-interface ListFilesResponse {
-    files: FileListItem[];
-    total_count: number;
-}
-
 /**
  * Main Lambda handler for listing all files
  */
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-    console.log('List files event:', JSON.stringify(event, null, 2));
+    const logger = createLogger({ 
+        requestId: event.requestContext.requestId,
+        functionName: 'list-files'
+    });
+    
+    logger.info('List files request received');
     
     try {
         // Get query parameters for pagination (optional)
         const limit = event.queryStringParameters?.limit ? 
             parseInt(event.queryStringParameters.limit) : 100;
         const lastEvaluatedKey = event.queryStringParameters?.lastKey;
+
+        logger.info('Scanning DynamoDB for files', { limit, hasLastKey: !!lastEvaluatedKey });
 
         // Scan DynamoDB table to get all files
         const scanParams: any = {
@@ -48,7 +51,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             try {
                 scanParams.ExclusiveStartKey = JSON.parse(decodeURIComponent(lastEvaluatedKey));
             } catch (error) {
-                console.warn('Invalid lastKey parameter:', error);
+                logger.warn('Invalid lastKey parameter', error as Error);
             }
         }
 
@@ -60,7 +63,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             file_name: item.file_name,
             upload_date: item.upload_date,
             file_size: item.file_size,
-            status: item.status || 'unknown',
+            status: isValidFileStatus(item.status) ? item.status : FileStatus.UPLOADED,
             content_type: item.content_type
         }));
 
@@ -74,57 +77,18 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
         // Add pagination info if there are more items
         if (result.LastEvaluatedKey) {
-            (response as any).next_key = encodeURIComponent(JSON.stringify(result.LastEvaluatedKey));
+            response.next_key = encodeURIComponent(JSON.stringify(result.LastEvaluatedKey));
         }
 
-        return createSuccessResponse(response);
+        logger.info('Files retrieved successfully', { 
+            count: files.length,
+            hasNextKey: !!response.next_key 
+        });
+
+        return createSuccessResponse<ListFilesResponse>(response);
 
     } catch (error) {
-        console.error('Error listing files:', error);
-        return createErrorResponse(500, 'Internal server error', { 
-            message: (error as Error).message 
-        });
+        logger.error('Error listing files', error as Error);
+        return createInternalError(error as Error);
     }
 };
-
-/**
- * Create success response
- */
-function createSuccessResponse(data: any): APIGatewayProxyResult {
-    return {
-        statusCode: 200,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-            'Access-Control-Allow-Methods': 'GET,OPTIONS'
-        },
-        body: JSON.stringify(data)
-    };
-}
-
-/**
- * Create error response
- */
-function createErrorResponse(
-    statusCode: number, 
-    error: string, 
-    additionalData?: any
-): APIGatewayProxyResult {
-    const responseBody: any = { error };
-    
-    if (additionalData) {
-        Object.assign(responseBody, additionalData);
-    }
-    
-    return {
-        statusCode,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-            'Access-Control-Allow-Methods': 'GET,OPTIONS'
-        },
-        body: JSON.stringify(responseBody)
-    };
-}

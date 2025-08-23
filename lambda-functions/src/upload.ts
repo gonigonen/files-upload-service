@@ -3,69 +3,81 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
+import { 
+  createSuccessResponse, 
+  createErrorResponse, 
+  createFileSizeError,
+  createValidationError,
+  createInternalError,
+  HTTP_STATUS,
+  ERROR_MESSAGES 
+} from './utils/responses';
+import { createLogger } from './utils/logger';
+import {
+  FileData,
+  ParsedMultipartData,
+  MultipartPart,
+  ValidationResult,
+  UploadResponse,
+  FileStatus,
+  FILE_SIZE_LIMITS,
+  S3_KEY_PATTERNS
+} from './types';
 
 // Initialize AWS clients
 const s3Client = new S3Client({ region: process.env.AWS_REGION });
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoDbClient);
 
-// Types
-interface FileData {
-    filename: string;
-    contentType: string;
-    content: Buffer;
-}
-
-interface ParsedMultipartData {
-    fileData: FileData | null;
-    metadata: Record<string, string | number | boolean>;
-}
-
-interface MultipartPart {
-    name: string;
-    filename?: string;
-    contentType?: string;
-    data: Buffer;
-}
-
-interface ValidationResult {
-    isValid: boolean;
-    errors: string[];
-    cleanedMetadata: Record<string, string | number | boolean>;
-}
-
 /**
  * Main Lambda handler for file upload
  */
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-    console.log('Upload event:', JSON.stringify(event, null, 2));
+    const logger = createLogger({ 
+        requestId: event.requestContext.requestId,
+        functionName: 'upload'
+    });
+    
+    logger.info('File upload request received', { 
+        httpMethod: event.httpMethod,
+        path: event.path 
+    });
     
     try {
         // Parse multipart form data
         const { fileData, metadata } = await parseMultipartData(event);
         
         if (!fileData) {
-            return createErrorResponse(400, 'No file provided in the request');
+            logger.warn('No file provided in request');
+            return createErrorResponse(HTTP_STATUS.BAD_REQUEST, ERROR_MESSAGES.FILE_NOT_PROVIDED);
         }
 
         // Validate and process metadata
         const metadataValidation = validateMetadata(metadata);
         if (!metadataValidation.isValid) {
-            return createErrorResponse(400, 'Invalid metadata format', metadataValidation.errors);
+            logger.warn('Invalid metadata format', { errors: metadataValidation.errors });
+            return createValidationError(metadataValidation.errors);
         }
 
         // Validate file size (max 10MB)
-        const maxFileSize = 10 * 1024 * 1024; // 10MB
-        if (fileData.content.length > maxFileSize) {
-            return createErrorResponse(413, 'File too large', undefined, {
-                max_size: '10MB',
-                actual_size: `${Math.round(fileData.content.length / 1024 / 1024 * 100) / 100}MB`
+        if (fileData.content.length > FILE_SIZE_LIMITS.MAX_FILE_SIZE) {
+            logger.warn('File too large', { 
+                actualSize: fileData.content.length,
+                maxSize: FILE_SIZE_LIMITS.MAX_FILE_SIZE 
             });
+            return createFileSizeError(fileData.content.length, FILE_SIZE_LIMITS.MAX_FILE_SIZE);
         }
 
         // Generate unique file ID and S3 key
         const fileId = uuidv4();
-        const s3Key = `uploads/${fileId}/${fileData.filename}`;
+        const s3Key = `${S3_KEY_PATTERNS.UPLOAD_PREFIX}${fileId}/${fileData.filename}`;
+
+        logger.info('Processing file upload', { 
+            fileId, 
+            filename: fileData.filename,
+            size: fileData.content.length,
+            contentType: fileData.contentType
+        });
 
         // Upload file to S3
         await uploadFileToS3(fileData, s3Key, fileId);
@@ -73,9 +85,9 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         // Store metadata in DynamoDB
         await storeMetadataInDynamoDB(fileId, fileData, s3Key, metadataValidation.cleanedMetadata);
 
-        console.log(`File uploaded successfully: ${fileId}`);
+        logger.info('File uploaded successfully', { fileId });
 
-        return createSuccessResponse({
+        return createSuccessResponse<UploadResponse>({
             file_id: fileId,
             message: 'File uploaded successfully',
             s3_key: s3Key,
@@ -85,8 +97,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         });
 
     } catch (error) {
-        console.error('Error uploading file:', error);
-        return createErrorResponse(500, 'Internal server error', [(error as Error).message]);
+        logger.error('Error uploading file', error as Error);
+        return createInternalError(error as Error);
     }
 };
 
@@ -125,7 +137,7 @@ async function storeMetadataInDynamoDB(
         s3_key: s3Key,
         upload_date: new Date().toISOString(),
         file_size: fileData.content.length,
-        status: 'uploaded',
+        status: FileStatus.UPLOADED,
         client_metadata: clientMetadata
     };
 
@@ -347,48 +359,5 @@ function validateMetadata(metadata: Record<string, string | number | boolean>): 
         isValid: errors.length === 0,
         errors: errors,
         cleanedMetadata: cleanedMetadata
-    };
-}
-
-/**
- * Create success response
- */
-function createSuccessResponse(data: any): APIGatewayProxyResult {
-    return {
-        statusCode: 200,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify(data)
-    };
-}
-
-/**
- * Create error response
- */
-function createErrorResponse(
-    statusCode: number, 
-    error: string, 
-    details?: string[], 
-    additionalData?: any
-): APIGatewayProxyResult {
-    const responseBody: any = { error };
-    
-    if (details && details.length > 0) {
-        responseBody.details = details;
-    }
-    
-    if (additionalData) {
-        Object.assign(responseBody, additionalData);
-    }
-    
-    return {
-        statusCode,
-        headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify(responseBody)
     };
 }

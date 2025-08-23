@@ -2,20 +2,21 @@
   "name": "file-upload-lambda-functions",
   "version": "1.0.0",
   "description": "TypeScript Lambda functions for serverless file upload service",
-  "main": "dist/upload.js",
+  "main": "upload.js",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
-    "postbuild": "npm run copy-package",
-    "copy-package": "cp package-prod.json dist/package.json && cd dist && npm install --production"
+    "postbuild": "cp package.json dist/ && cd dist && npm install --production"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.400.0",
     "@aws-sdk/client-dynamodb": "^3.400.0",
     "@aws-sdk/lib-dynamodb": "^3.400.0",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "http-status-codes": "^2.3.0",
+    "winston": "^3.11.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.119",

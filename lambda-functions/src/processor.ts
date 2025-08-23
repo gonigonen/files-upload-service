@@ -2,31 +2,28 @@ import { S3Event } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { createLogger } from './utils/logger';
+import {
+  ExtractedMetadata,
+  ExtractedFileType,
+  ExtractedCategory,
+  ExtractedSizeCategory,
+  FileStatus,
+  FILE_SIZE_LIMITS,
+} from './types';
 
 // Initialize AWS clients
 const s3Client = new S3Client({ region: process.env.AWS_REGION });
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoDbClient);
 
-// Types
-interface ExtractedMetadata {
-    file_size: number;
-    content_type: string;
-    file_extension: string;
-    processing_timestamp: string;
-    file_type: string;
-    category: string;
-    size_category: string;
-    format?: string;
-    estimated_pages?: number;
-    estimated_lines?: number;
-}
-
 /**
  * Main Lambda handler for file processing and metadata extraction
  */
 export const handler = async (event: S3Event): Promise<any> => {
-    console.log('File processing event:', JSON.stringify(event, null, 2));
+    const logger = createLogger({ functionName: 'processor' });
+    
+    logger.info('File processing event received', { recordCount: event.Records.length });
     
     try {
         // Process each S3 event record
@@ -35,32 +32,51 @@ export const handler = async (event: S3Event): Promise<any> => {
             const objectKey = decodeURIComponent(record.s3.object.key.replace(/\+/g, ' '));
             const objectSize = record.s3.object.size;
             
-            console.log(`Processing file: ${objectKey} (${objectSize} bytes)`);
+            const recordLogger = logger.addContext({ 
+                bucketName, 
+                objectKey, 
+                objectSize 
+            });
+            
+            recordLogger.info('Processing file');
             
             // Extract file_id from S3 key (assuming format: uploads/{file_id}/{filename})
             const keyParts = objectKey.split('/');
             if (keyParts.length < 3 || keyParts[0] !== 'uploads') {
-                console.log('Skipping file - not in expected format');
+                recordLogger.warn('Skipping file - not in expected format');
                 continue;
             }
             
             const fileId = keyParts[1];
             const fileName = keyParts.slice(2).join('/');
             
-            // Get file from S3 to analyze
-            const s3Object = await s3Client.send(new GetObjectCommand({
-                Bucket: bucketName,
-                Key: objectKey
-            }));
+            const fileLogger = recordLogger.addContext({ fileId, fileName });
             
-            // Extract metadata based on file type
-            const extractedMetadata = await extractFileMetadata(s3Object, fileName, objectSize);
-            
-            // Update DynamoDB with flattened extracted metadata
-            await updateDynamoDBWithMetadata(fileId, extractedMetadata);
-            
-            console.log(`Successfully processed file ${fileId} with extracted metadata:`, extractedMetadata);
+            try {
+                // Get file from S3 to analyze
+                const s3Object = await s3Client.send(new GetObjectCommand({
+                    Bucket: bucketName,
+                    Key: objectKey
+                }));
+                
+                // Extract metadata based on file type
+                const extractedMetadata = await extractFileMetadata(s3Object, fileName, objectSize);
+                
+                fileLogger.info('Extracted metadata', { extractedMetadata });
+                
+                // Update DynamoDB with flattened extracted metadata
+                await updateDynamoDBWithMetadata(fileId, extractedMetadata);
+                
+                fileLogger.info('File processing completed successfully');
+                
+            } catch (fileError) {
+                fileLogger.error('Error processing individual file', fileError as Error);
+                // Continue processing other files even if one fails
+                continue;
+            }
         }
+        
+        logger.info('All files processed successfully');
         
         return {
             statusCode: 200,
@@ -70,8 +86,8 @@ export const handler = async (event: S3Event): Promise<any> => {
         };
         
     } catch (error) {
-        console.error('Error processing file:', error);
-        throw error;
+        logger.error('Error processing files', error as Error);
+        throw error; // This will trigger Lambda retry mechanism
     }
 };
 
@@ -89,7 +105,7 @@ async function updateDynamoDBWithMetadata(fileId: string, extractedMetadata: Ext
     updateExpressions.push('#processing_date = :processing_date');
     expressionAttributeNames['#status'] = 'status';
     expressionAttributeNames['#processing_date'] = 'processing_date';
-    expressionAttributeValues[':status'] = 'processed';
+    expressionAttributeValues[':status'] = FileStatus.PROCESSED;
     expressionAttributeValues[':processing_date'] = new Date().toISOString();
     
     // Add each extracted metadata field as individual column
@@ -128,15 +144,15 @@ async function extractFileMetadata(s3Object: any, fileName: string, fileSize: nu
         content_type: contentType,
         file_extension: fileExtension,
         processing_timestamp: new Date().toISOString(),
-        file_type: 'unknown',
-        category: 'other',
+        file_type: ExtractedFileType.UNKNOWN,
+        category: ExtractedCategory.OTHER,
         size_category: getSizeCategory(fileSize)
     };
     
     // Basic file type detection and metadata extraction
     if (contentType.startsWith('image/')) {
-        metadata.file_type = 'image';
-        metadata.category = 'media';
+        metadata.file_type = ExtractedFileType.IMAGE;
+        metadata.category = ExtractedCategory.MEDIA;
         
         if (contentType.includes('jpeg') || contentType.includes('jpg')) {
             metadata.format = 'JPEG';
@@ -151,16 +167,16 @@ async function extractFileMetadata(s3Object: any, fileName: string, fileSize: nu
         }
         
     } else if (contentType === 'application/pdf' || fileExtension === 'pdf') {
-        metadata.file_type = 'pdf';
-        metadata.category = 'document';
+        metadata.file_type = ExtractedFileType.PDF;
+        metadata.category = ExtractedCategory.DOCUMENT;
         
         // Rough estimate of pages based on file size
         // This is a simplified approach - for accurate page count, you'd need a PDF parsing library
         metadata.estimated_pages = Math.max(1, Math.ceil(fileSize / 50000));
         
     } else if (contentType.startsWith('text/') || ['txt', 'md', 'csv', 'json', 'xml', 'html', 'css', 'js', 'ts'].includes(fileExtension)) {
-        metadata.file_type = 'text';
-        metadata.category = 'document';
+        metadata.file_type = ExtractedFileType.TEXT;
+        metadata.category = ExtractedCategory.DOCUMENT;
         
         // Rough estimate of lines based on file size
         if (fileSize > 0) {
@@ -168,8 +184,8 @@ async function extractFileMetadata(s3Object: any, fileName: string, fileSize: nu
         }
         
     } else if (contentType.startsWith('video/') || ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(fileExtension)) {
-        metadata.file_type = 'video';
-        metadata.category = 'media';
+        metadata.file_type = ExtractedFileType.VIDEO;
+        metadata.category = ExtractedCategory.MEDIA;
         
         if (contentType.includes('mp4') || fileExtension === 'mp4') {
             metadata.format = 'MP4';
@@ -180,8 +196,8 @@ async function extractFileMetadata(s3Object: any, fileName: string, fileSize: nu
         }
         
     } else if (contentType.startsWith('audio/') || ['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a'].includes(fileExtension)) {
-        metadata.file_type = 'audio';
-        metadata.category = 'media';
+        metadata.file_type = ExtractedFileType.AUDIO;
+        metadata.category = ExtractedCategory.MEDIA;
         
         if (contentType.includes('mpeg') || fileExtension === 'mp3') {
             metadata.format = 'MP3';
@@ -192,8 +208,8 @@ async function extractFileMetadata(s3Object: any, fileName: string, fileSize: nu
         }
         
     } else if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(fileExtension)) {
-        metadata.file_type = 'office';
-        metadata.category = 'document';
+        metadata.file_type = ExtractedFileType.DOCUMENT;
+        metadata.category = ExtractedCategory.DOCUMENT;
         
         if (['doc', 'docx'].includes(fileExtension)) {
             metadata.format = 'Word Document';
@@ -204,8 +220,8 @@ async function extractFileMetadata(s3Object: any, fileName: string, fileSize: nu
         }
         
     } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(fileExtension)) {
-        metadata.file_type = 'archive';
-        metadata.category = 'compressed';
+        metadata.file_type = ExtractedFileType.ARCHIVE;
+        metadata.category = ExtractedCategory.COMPRESSED;
         metadata.format = fileExtension.toUpperCase();
     }
     
@@ -215,14 +231,12 @@ async function extractFileMetadata(s3Object: any, fileName: string, fileSize: nu
 /**
  * Determine file size category
  */
-function getSizeCategory(fileSize: number): string {
-    if (fileSize < 1024 * 1024) { // < 1MB
-        return 'small';
-    } else if (fileSize < 10 * 1024 * 1024) { // < 10MB
-        return 'medium';
-    } else if (fileSize < 100 * 1024 * 1024) { // < 100MB
-        return 'large';
+function getSizeCategory(fileSize: number): ExtractedSizeCategory {
+    if (fileSize < FILE_SIZE_LIMITS.SMALL_FILE_THRESHOLD) { // < 1MB
+        return ExtractedSizeCategory.SMALL;
+    } else if (fileSize < FILE_SIZE_LIMITS.LARGE_FILE_THRESHOLD) { // < 10MB
+        return ExtractedSizeCategory.MEDIUM;
     } else {
-        return 'very_large';
+        return ExtractedSizeCategory.LARGE;
     }
 }

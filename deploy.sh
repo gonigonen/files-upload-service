@@ -73,14 +73,6 @@ if ! npm run build; then
     exit 1
 fi
 
-# Check if old stack exists and warn user
-print_status "Checking for existing stacks..."
-if aws cloudformation describe-stacks --stack-name FileUploadStack --region $REGION > /dev/null 2>&1; then
-    print_warning "Old FileUploadStack detected!"
-    print_warning "You may want to destroy it first: npx cdk destroy FileUploadStack"
-    print_warning "Continuing with FileManagerStack deployment..."
-fi
-
 # Bootstrap CDK (if not already done)
 print_status "Bootstrapping CDK..."
 if ! npx cdk bootstrap; then
