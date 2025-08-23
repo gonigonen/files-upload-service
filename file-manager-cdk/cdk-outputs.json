@@ -1,0 +1,8 @@
+{
+  "FileManagerStack": {
+    "ApiGatewayUrl": "https://gmkvuf6lfa.execute-api.us-east-2.amazonaws.com/prod/",
+    "FileManagerApiEndpointB16BB9AC": "https://gmkvuf6lfa.execute-api.us-east-2.amazonaws.com/prod/",
+    "DynamoDBTableName": "file-metadata",
+    "S3BucketName": "file-manager-508312763498-us-east-2"
+  }
+}

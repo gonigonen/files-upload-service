@@ -8,6 +8,11 @@ export interface LogContext {
   requestId?: string;
   fileId?: string;
   userId?: string;
+  awsRegion?: string;
+  s3Bucket?: string;
+  dynamoTable?: string;
+  httpMethod?: string;
+  path?: string;
   [key: string]: any;
 }
 

@@ -7,7 +7,7 @@ import {
   createInternalError,
   createMissingParameterError,
 } from './utils/responses';
-import { createLogger } from './utils/logger';
+import { createLogger, Logger } from './utils/logger';
 import {
   FileMetadata,
   MetadataResponse
@@ -17,13 +17,21 @@ import {
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoDbClient);
 
+// Initialize logger with AWS resource context
+const baseLogger = createLogger({
+    functionName: 'metadata',
+    awsRegion: process.env.AWS_REGION,
+    dynamoTable: process.env.DYNAMODB_TABLE_NAME
+});
+
 /**
  * Main Lambda handler for metadata retrieval
  */
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-    const logger = createLogger({ 
+    const logger: Logger = baseLogger.addContext({ 
         requestId: event.requestContext.requestId,
-        functionName: 'metadata'
+        httpMethod: event.httpMethod,
+        path: event.path
     });
     
     logger.info('Metadata retrieval request received');

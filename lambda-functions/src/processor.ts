@@ -2,7 +2,7 @@ import { S3Event } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { createLogger } from './utils/logger';
+import { createLogger, logger } from './utils/logger';
 import {
   ExtractedMetadata,
   ExtractedFileType,
@@ -126,10 +126,25 @@ async function updateDynamoDBWithMetadata(fileId: string, extractedMetadata: Ext
         },
         UpdateExpression: `SET ${updateExpressions.join(', ')}`,
         ExpressionAttributeNames: expressionAttributeNames,
-        ExpressionAttributeValues: expressionAttributeValues
+        ExpressionAttributeValues: expressionAttributeValues,
+        // Ensure the record exists before updating
+        ConditionExpression: 'attribute_exists(file_id)'
     };
     
-    await docClient.send(new UpdateCommand(updateParams));
+    try {
+        await docClient.send(new UpdateCommand(updateParams));
+        logger.info('Metadata extraction completed successfully');
+    } catch (error: any) {
+        if (error.name === 'ConditionalCheckFailedException') {
+            logger.error('File record not found in DynamoDB - possible race condition', { 
+                fileId,
+                suggestion: 'Upload Lambda may have failed to create initial record'
+            });
+            // Don't throw - this prevents infinite retries for a legitimate issue
+            return;
+        }
+        throw error; // Re-throw other errors for Lambda retry mechanism
+    }
 }
 
 /**

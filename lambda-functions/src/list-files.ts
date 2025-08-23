@@ -5,7 +5,7 @@ import {
   createSuccessResponse, 
   createInternalError,
 } from './utils/responses';
-import { createLogger } from './utils/logger';
+import { createLogger, Logger } from './utils/logger';
 import {
   FileListItem,
   ListFilesResponse,
@@ -17,13 +17,21 @@ import {
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoDbClient);
 
+// Initialize logger with AWS resource context
+const baseLogger = createLogger({
+    functionName: 'list-files',
+    awsRegion: process.env.AWS_REGION,
+    dynamoTable: process.env.DYNAMODB_TABLE_NAME
+});
+
 /**
  * Main Lambda handler for listing all files
  */
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-    const logger = createLogger({ 
+    const logger: Logger = baseLogger.addContext({ 
         requestId: event.requestContext.requestId,
-        functionName: 'list-files'
+        httpMethod: event.httpMethod,
+        path: event.path
     });
     
     logger.info('List files request received');

@@ -1,7 +1,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   createSuccessResponse, 
@@ -12,7 +12,7 @@ import {
   HTTP_STATUS,
   ERROR_MESSAGES 
 } from './utils/responses';
-import { createLogger } from './utils/logger';
+import { createLogger, Logger } from './utils/logger';
 import {
   FileData,
   ParsedMultipartData,
@@ -29,39 +29,45 @@ const s3Client = new S3Client({ region: process.env.AWS_REGION });
 const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoDbClient);
 
+// Initialize logger with AWS resource context
+const logger = createLogger({
+    functionName: 'upload',
+    awsRegion: process.env.AWS_REGION,
+    s3Bucket: process.env.S3_BUCKET_NAME,
+    dynamoTable: process.env.DYNAMODB_TABLE_NAME
+});
+
 /**
  * Main Lambda handler for file upload
  */
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-    const logger = createLogger({ 
+    const requestLogger: Logger = logger.addContext({ 
         requestId: event.requestContext.requestId,
-        functionName: 'upload'
+        httpMethod: event.httpMethod,
+        path: event.path
     });
     
-    logger.info('File upload request received', { 
-        httpMethod: event.httpMethod,
-        path: event.path 
-    });
+    requestLogger.info('File upload request received');
     
     try {
         // Parse multipart form data
         const { fileData, metadata } = await parseMultipartData(event);
         
         if (!fileData) {
-            logger.warn('No file provided in request');
+            requestLogger.warn('No file provided in request');
             return createErrorResponse(HTTP_STATUS.BAD_REQUEST, ERROR_MESSAGES.FILE_NOT_PROVIDED);
         }
 
         // Validate and process metadata
         const metadataValidation = validateMetadata(metadata);
         if (!metadataValidation.isValid) {
-            logger.warn('Invalid metadata format', { errors: metadataValidation.errors });
+            requestLogger.warn('Invalid metadata format', { errors: metadataValidation.errors });
             return createValidationError(metadataValidation.errors);
         }
 
         // Validate file size (max 10MB)
         if (fileData.content.length > FILE_SIZE_LIMITS.MAX_FILE_SIZE) {
-            logger.warn('File too large', { 
+            requestLogger.warn('File too large', { 
                 actualSize: fileData.content.length,
                 maxSize: FILE_SIZE_LIMITS.MAX_FILE_SIZE 
             });
@@ -72,20 +78,32 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         const fileId = uuidv4();
         const s3Key = `${S3_KEY_PATTERNS.UPLOAD_PREFIX}${fileId}/${fileData.filename}`;
 
-        logger.info('Processing file upload', { 
+        requestLogger.info('Processing file upload', { 
             fileId, 
             filename: fileData.filename,
             size: fileData.content.length,
             contentType: fileData.contentType
         });
 
-        // Upload file to S3
-        await uploadFileToS3(fileData, s3Key, fileId);
+        // Store metadata in DynamoDB FIRST (before S3 upload)
+        // This prevents race condition with Processing Lambda
+        await storeMetadataInDynamoDBWithRetry(fileId, fileData, s3Key, metadataValidation.cleanedMetadata, requestLogger);
+        
+        try {
+            // Upload file to S3 (this will trigger Processing Lambda)
+            await uploadFileToS3(fileData, s3Key, fileId, requestLogger);
+        } catch (s3Error) {
+            // If S3 upload fails, clean up DynamoDB record
+            requestLogger.error('S3 upload failed, cleaning up DynamoDB record', s3Error, { fileId });
+            try {
+                await cleanupDynamoDBRecord(fileId, requestLogger);
+            } catch (cleanupError) {
+                requestLogger.error('Failed to cleanup DynamoDB record after S3 failure', cleanupError, { fileId });
+            }
+            throw s3Error; // Re-throw original error
+        }
 
-        // Store metadata in DynamoDB
-        await storeMetadataInDynamoDB(fileId, fileData, s3Key, metadataValidation.cleanedMetadata);
-
-        logger.info('File uploaded successfully', { fileId });
+        requestLogger.info('File uploaded successfully', { fileId });
 
         return createSuccessResponse<UploadResponse>({
             file_id: fileId,
@@ -97,7 +115,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         });
 
     } catch (error) {
-        logger.error('Error uploading file', error as Error);
+        requestLogger.error('Error uploading file', error as Error);
         return createInternalError(error as Error);
     }
 };
@@ -105,7 +123,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 /**
  * Upload file to S3 bucket
  */
-async function uploadFileToS3(fileData: FileData, s3Key: string, fileId: string): Promise<void> {
+async function uploadFileToS3(fileData: FileData, s3Key: string, fileId: string, logger: any): Promise<void> {
     const uploadParams = {
         Bucket: process.env.S3_BUCKET_NAME!,
         Key: s3Key,
@@ -360,4 +378,51 @@ function validateMetadata(metadata: Record<string, string | number | boolean>): 
         errors: errors,
         cleanedMetadata: cleanedMetadata
     };
+}
+
+/**
+ * Store metadata in DynamoDB with retry mechanism
+ */
+async function storeMetadataInDynamoDBWithRetry(
+    fileId: string, 
+    fileData: FileData, 
+    s3Key: string, 
+    metadata: Record<string, any>,
+    logger: any
+): Promise<void> {
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await storeMetadataInDynamoDB(fileId, fileData, s3Key, metadata);
+            return; // Success
+        } catch (error: any) {
+            logger.warn(`DynamoDB write attempt ${attempt} failed`, error, { fileId });
+            
+            if (attempt === maxRetries) {
+                logger.error('All DynamoDB write attempts failed', error, { fileId });
+                throw error;
+            }
+            
+            // Exponential backoff with jitter
+            const delay = baseDelay * Math.pow(2, attempt - 1);
+            const jitter = Math.random() * 0.1 * delay;
+            await new Promise(resolve => setTimeout(resolve, delay + jitter));
+        }
+    }
+}
+
+/**
+ * Clean up DynamoDB record (used when S3 upload fails)
+ */
+async function cleanupDynamoDBRecord(fileId: string, logger: any): Promise<void> {
+    const deleteParams = {
+        TableName: process.env.DYNAMODB_TABLE_NAME!,
+        Key: {
+            file_id: fileId
+        }
+    };
+
+    await docClient.send(new DeleteCommand(deleteParams));
 }
