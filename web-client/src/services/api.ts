@@ -72,8 +72,23 @@ export const fileApi = {
 
   // Upload file
   async uploadFile(file: File, metadata: Record<string, any> = {}): Promise<UploadResponse> {
+    // Validate file object
+    if (!file) {
+      throw new Error('No file provided');
+    }
+    
+    if (!(file instanceof File)) {
+      throw new Error('Invalid file object - must be a File instance');
+    }
+    
+    if (!file.name) {
+      throw new Error('File must have a name');
+    }
+    
+    console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
+    
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file, file.name); // Explicitly set filename
     
     // Add metadata fields using compatible approach
     const metadataEntries = getObjectEntries(metadata);
@@ -81,6 +96,17 @@ export const fileApi = {
       const [key, value] = metadataEntries[i];
       if (value !== undefined && value !== null && value !== '') {
         formData.append(key, String(value));
+        console.log(`Added metadata: ${key} = ${value}`);
+      }
+    }
+
+    // Debug: Log FormData contents
+    console.log('FormData contents:');
+    for (const [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        console.log(`${key}: File(name="${value.name}", size=${value.size}, type="${value.type}")`);
+      } else {
+        console.log(`${key}: ${value}`);
       }
     }
 

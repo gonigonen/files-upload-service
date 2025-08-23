@@ -162,12 +162,15 @@ async function parseMultipartData(event: APIGatewayProxyEvent): Promise<ParsedMu
     const metadata: Record<string, string | number | boolean> = {};
 
     for (const part of parts) {
+        console.log(`Processing part: name=${part.name}, filename=${part.filename}`);
+        
         if (part.name === 'file') {
             fileData = {
                 filename: part.filename || 'unnamed_file',
                 contentType: part.contentType || 'application/octet-stream',
                 content: part.data
             };
+            console.log(`File data created: filename=${fileData.filename}, contentType=${fileData.contentType}, size=${fileData.content.length}`);
         } else if (part.name && part.data) {
             // All other fields are treated as metadata
             const value = part.data.toString('utf8').trim();
@@ -236,22 +239,52 @@ function parseMultipartPart(partData: Buffer): MultipartPart | null {
     // Remove trailing \r\n
     const data = dataSection.slice(0, -2);
     
-    // Parse Content-Disposition header
-    const dispositionMatch = headerSection.match(/Content-Disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]+)")?/i);
-    if (!dispositionMatch) {
-        return null;
+    console.log('Parsing multipart header:', headerSection);
+    
+    // Parse Content-Disposition header with multiple patterns for better compatibility
+    let name: string | undefined;
+    let filename: string | undefined;
+    
+    // Pattern 1: Standard quoted format
+    let dispositionMatch = headerSection.match(/Content-Disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]+)")?/i);
+    
+    if (dispositionMatch) {
+        name = dispositionMatch[1];
+        filename = dispositionMatch[2];
+    } else {
+        // Pattern 2: Unquoted format
+        dispositionMatch = headerSection.match(/Content-Disposition:\s*form-data;\s*name=([^;,\s]+)(?:;\s*filename=([^;,\s]+))?/i);
+        if (dispositionMatch) {
+            name = dispositionMatch[1].replace(/"/g, '');
+            filename = dispositionMatch[2] ? dispositionMatch[2].replace(/"/g, '') : undefined;
+        } else {
+            // Pattern 3: Mixed format (name quoted, filename unquoted or vice versa)
+            const nameMatch = headerSection.match(/name=(?:"([^"]+)"|([^;,\s]+))/i);
+            const filenameMatch = headerSection.match(/filename=(?:"([^"]+)"|([^;,\s]+))/i);
+            
+            if (nameMatch) {
+                name = nameMatch[1] || nameMatch[2];
+                if (filenameMatch) {
+                    filename = filenameMatch[1] || filenameMatch[2];
+                }
+            }
+        }
     }
     
-    const name = dispositionMatch[1];
-    const filename = dispositionMatch[2];
+    if (!name) {
+        console.log('Could not parse name from Content-Disposition header');
+        return null;
+    }
     
     // Parse Content-Type header
     const contentTypeMatch = headerSection.match(/Content-Type:\s*([^\r\n]+)/i);
     const contentType = contentTypeMatch ? contentTypeMatch[1].trim() : undefined;
     
+    console.log(`Parsed part - name: ${name}, filename: ${filename}, contentType: ${contentType}`);
+    
     return {
-        name,
-        filename,
+        name: name.trim(),
+        filename: filename ? filename.trim() : undefined,
         contentType,
         data
     };

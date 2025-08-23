@@ -41,7 +41,25 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({
 
       setUploading(true);
       
-      const file = fileList[0].originFileObj as File;
+      // Extract file with proper validation
+      const uploadFile = fileList[0];
+      const file = uploadFile.originFileObj || uploadFile as any;
+      
+      if (!file) {
+        message.error('No file selected or file is invalid');
+        setUploading(false);
+        return;
+      }
+
+      // Ensure we have a proper File object
+      if (!(file instanceof File)) {
+        message.error('Invalid file object');
+        setUploading(false);
+        return;
+      }
+
+      console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
+      
       const metadata: Record<string, any> = {};
       
       // Process custom metadata fields
@@ -82,7 +100,17 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({
   const uploadProps: UploadProps = {
     fileList,
     beforeUpload: (file) => {
-      setFileList([file]);
+      console.log('File selected:', file.name, 'Size:', file.size, 'Type:', file.type);
+      
+      // Create proper UploadFile object with originFileObj
+      const uploadFile: UploadFile = {
+        uid: file.name + Date.now(),
+        name: file.name,
+        status: 'done',
+        originFileObj: file,
+      };
+      
+      setFileList([uploadFile]);
       return false; // Prevent automatic upload
     },
     onRemove: () => {
