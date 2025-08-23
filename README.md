@@ -2,31 +2,9 @@
 
 A serverless file management service built with AWS CDK and TypeScript. Upload files with metadata, automatic processing, and a React web interface.
 
+**🎯 Purpose**: Development and demonstration project showcasing serverless architecture patterns.
+
 **⚠️ Security**: No authentication implemented - suitable for development, testing, and learning only.
-
-## 🚀 Quick Start
-
-### Prerequisites
-- AWS CLI configured (`aws configure`)
-- Node.js 18+
-- AWS CDK installed globally: `npm install -g aws-cdk`
-
-### Deploy Backend
-```bash
-./deploy.sh
-```
-**📡 Note the API Gateway URL from the deployment output - you'll need it!**
-
-⚠️ **Security Note**: This deployment creates an **open API** with no authentication. Anyone with the URL can upload/access files. See [Security Considerations](#-security-considerations) for authentication options.
-
-### Start Web Client
-```bash
-cd web-client
-npm install
-# Update src/services/api.ts with your API Gateway URL
-npm start
-# Open http://localhost:3000
-```
 
 ## 🏗️ Architecture
 
@@ -63,141 +41,66 @@ npm start
 ```
 
 **Components:**
-- **React Web Client**: Modern UI with file upload, listing, and metadata viewing
 - **API Gateway**: 3 REST endpoints (upload, list, metadata)
 - **4 Lambda Functions**: TypeScript-based serverless processing
 - **S3**: Secure file storage with event notifications
 - **DynamoDB**: Fast metadata storage and retrieval
+- **React Web Client**: Modern UI with file upload, listing, and metadata viewing
 
-## 📊 Component Separation Evaluation
+## 🚀 Quick Start
 
-### **🎯 Separation of Concerns**
+### Prerequisites
+- AWS CLI configured (`aws configure`)
+- Node.js 18+
+- AWS CDK installed globally: `npm install -g aws-cdk`
 
-#### **1. Presentation Layer (React Client)**
-- ✅ **Single Responsibility**: Only handles UI/UX and user interactions
-- ✅ **No Business Logic**: Pure presentation with API service abstraction
-- ✅ **Technology Independence**: Can be replaced with any frontend framework
-- ✅ **Clean API Interface**: Uses dedicated service layer (`api.ts`)
+### Deploy Backend
+```bash
+./deploy.sh
+```
+**📡 Note the API Gateway URL from the deployment output - you'll need it!**
 
-```typescript
-// Clean separation - UI only calls API service
-const result = await fileApi.uploadFile(file, metadata);
+⚠️ **Security Note**: This deployment creates an **open API** with no authentication. Anyone with the URL can upload/access files. See [Security Considerations](#-security-considerations) for authentication options.
+
+### Start Web Client
+```bash
+cd web-client
+npm install
+# Update src/services/api.ts with your API Gateway URL
+npm start
+# Open http://localhost:3000
 ```
 
-#### **2. API Layer (API Gateway)**
-- ✅ **Protocol Abstraction**: Converts HTTP to Lambda events
-- ✅ **Routing Logic**: Maps endpoints to appropriate Lambda functions
-- ✅ **No Business Logic**: Pure routing and protocol translation
+## 🛠️ Development
 
-#### **3. Business Logic Layer (Lambda Functions)**
-- ✅ **Single Purpose Functions**: Each Lambda has one clear responsibility
-  - **Upload Lambda**: File validation, S3 storage, initial metadata
-  - **List Files Lambda**: Query and return file listings
-  - **Metadata Lambda**: Retrieve complete file metadata
-  - **Processing Lambda**: Extract metadata from uploaded files
-- ✅ **Stateless Design**: No shared state between invocations
-- ✅ **Event-Driven**: Processing triggered by S3 events, not direct calls
-
-#### **4. Data Layer (S3 + DynamoDB)**
-- ✅ **Purpose-Built Storage**: S3 for files, DynamoDB for metadata
-- ✅ **No Business Logic**: Pure data storage and retrieval
-- ✅ **Optimized Access Patterns**: DynamoDB structure optimized for queries
-
-### **🔄 Loose Coupling**
-
-#### **Event-Driven Architecture**
-- ✅ **Asynchronous Processing**: S3 events trigger processing without blocking upload
-- ✅ **Decoupled Components**: Upload doesn't wait for metadata extraction
-- ✅ **Scalable Design**: Each component scales independently
-
-#### **Technology Independence**
-- ✅ **Swappable Components**: Can replace React with Vue, S3 with other storage
-- ✅ **Cloud Agnostic Logic**: Business logic not tied to AWS specifics
-- ✅ **Database Independence**: Could switch from DynamoDB to other NoSQL/SQL
-
-### **🎨 High Cohesion**
-
-#### **Functional Cohesion**
-Each component has a single, well-defined purpose:
-
-```typescript
-// Upload Lambda - Only handles file uploads
-export const handler = async (event: APIGatewayProxyEvent) => {
-  // 1. Parse multipart data
-  // 2. Validate file and metadata  
-  // 3. Store in S3
-  // 4. Save metadata to DynamoDB
-  // 5. Return confirmation
-};
+### Build Lambda Functions
+```bash
+cd lambda-functions
+npm install
+npm run build
 ```
 
-#### **Data Cohesion**
-- ✅ **Related Data Together**: File metadata stored as single DynamoDB item
-- ✅ **Logical Grouping**: Client metadata vs extracted metadata clearly separated
-- ✅ **Consistent Structure**: All components use same data models
-
-### **🔧 Maintainability**
-
-#### **Independent Development**
-- ✅ **Team Separation**: Frontend, backend, infrastructure teams can work independently
-- ✅ **Technology Choices**: Each layer can use optimal technology stack
-- ✅ **Deployment Independence**: Components can be deployed separately
-
-#### **Error Isolation**
-- ✅ **Fault Tolerance**: One component failure doesn't crash entire system
-- ✅ **Graceful Degradation**: Upload works even if processing fails
-- ✅ **Clear Error Boundaries**: Each layer handles its own error scenarios
-
-### **📈 Scalability**
-
-#### **Independent Scaling**
-- ✅ **Lambda Auto-scaling**: Each function scales based on demand
-- ✅ **Storage Scaling**: S3 and DynamoDB scale automatically
-- ✅ **Frontend Scaling**: React app can be deployed to CDN
-
-#### **Performance Optimization**
-- ✅ **Caching Layers**: API Gateway caching, DynamoDB DAX potential
-- ✅ **Async Processing**: File processing doesn't block user experience
-- ✅ **Optimized Queries**: Flattened metadata structure for fast retrieval
-
-### **🔒 Security Boundaries**
-
-#### **Principle of Least Privilege**
-```typescript
-// Each Lambda has minimal required permissions
-uploadLambda: S3 PutObject, DynamoDB PutItem
-listLambda: DynamoDB Scan
-metadataLambda: DynamoDB GetItem
-processingLambda: S3 GetObject, DynamoDB UpdateItem
+### Deploy Changes
+```bash
+./deploy.sh
 ```
 
-#### **Network Isolation**
-- ✅ **Private Resources**: S3 bucket and DynamoDB not publicly accessible
-- ✅ **API Gateway**: Single public entry point with proper CORS
-- ✅ **VPC Isolation**: Lambda functions can be placed in VPC if needed
+### Local Development
+```bash
+# Watch mode for Lambda functions
+cd lambda-functions && npm run build:watch
 
-### **📊 Architecture Score: 9.5/10**
+# Web client development
+cd web-client && npm start
+```
 
-#### **Strengths:**
-- ✅ **Perfect separation of concerns**
-- ✅ **Event-driven, loosely coupled design**
-- ✅ **High cohesion within components**
-- ✅ **Excellent scalability and maintainability**
-- ✅ **Strong security boundaries**
-- ✅ **Technology independence**
+## 🧹 Cleanup
 
-#### **Minor Areas for Enhancement:**
-- 🔄 **Monitoring**: Could add more comprehensive observability
-- 🔄 **Caching**: Could implement API-level caching for metadata
-- 🔄 **Batch Processing**: Could optimize for bulk operations
-
-#### **Best Practices Demonstrated:**
-- ✅ **Single Responsibility Principle**
-- ✅ **Dependency Inversion**
-- ✅ **Interface Segregation**
-- ✅ **Open/Closed Principle**
-- ✅ **Event-Driven Architecture**
-- ✅ **Microservices Patterns**
+Remove all AWS resources:
+```bash
+cd file-manager-cdk
+npx cdk destroy
+```
 
 ## 📡 API Endpoints
 
@@ -209,14 +112,14 @@ curl -X POST https://YOUR-API-URL/upload \
   -F "project=MyProject"
 ```
 
-### Get Metadata
-```bash
-curl https://YOUR-API-URL/metadata/{file_id}
-```
-
 ### List Files
 ```bash
 curl https://YOUR-API-URL/files
+```
+
+### Get Metadata
+```bash
+curl https://YOUR-API-URL/metadata/{file_id}
 ```
 
 ## ⚠️ Error Handling
@@ -340,41 +243,44 @@ try {
 
 ### **🔧 Error Monitoring & Debugging**
 
-**Third-Party Libraries Used:**
-- ✅ **http-status-codes**: Industry-standard HTTP status codes and reason phrases
-- ✅ **winston**: Professional logging library with structured JSON output
-- ✅ **@aws-sdk/**: Official AWS SDK v3 for all AWS service interactions
-- ✅ **uuid**: RFC-compliant UUID generation for unique file identifiers
-
-#### **Shared Types & Interfaces**
-All Lambda functions use shared TypeScript types for consistency:
-
-**Shared Type Categories:**
-- ✅ **API Response Types**: `UploadResponse`, `ListFilesResponse`, `MetadataResponse`
-- ✅ **Data Models**: `FileData`, `FileMetadata`, `ExtractedMetadata`
-- ✅ **Enums**: `FileStatus`, `ExtractedFileType`, `ExtractedCategory`
-- ✅ **Constants**: `FILE_SIZE_LIMITS`, `SUPPORTED_FILE_TYPES`, `S3_KEY_PATTERNS`
-- ✅ **Utility Types**: Type guards, validation interfaces
-- ✅ **Logging Types**: `LogContext`, `PerformanceMetrics`, `HttpMetrics`
-
-**Benefits:**
-- ✅ **Industry Standards**: Using well-established, battle-tested libraries
-- ✅ **Consistency**: Standardized error formats across all functions
-- ✅ **Maintainability**: Single place to update response structure
-- ✅ **Type Safety**: Full TypeScript support with proper type definitions
-- ✅ **Structured Logging**: JSON format with context correlation and log levels
-- ✅ **Performance**: Optimized libraries with minimal overhead
-- ✅ **Shared Types**: Consistent interfaces and enums across all Lambda functions
-- ✅ **Type Guards**: Runtime type validation with compile-time safety
-
 #### **CloudWatch Logs**
 ```bash
 # View real-time logs for each function
-aws logs tail /aws/lambda/FileManagerStack-FileUploadFunction-* --follow
-aws logs tail /aws/lambda/FileManagerStack-FileProcessingFunction-* --follow
-aws logs tail /aws/lambda/FileManagerStack-ListFilesFunction-* --follow
-aws logs tail /aws/lambda/FileManagerStack-MetadataRetrievalFunction-* --follow
+aws logs tail /aws/lambda/FileManagerStack-FileUploadFunction-* --follow --region us-east-2
+aws logs tail /aws/lambda/FileManagerStack-FileProcessingFunction-* --follow --region us-east-2
+aws logs tail /aws/lambda/FileManagerStack-ListFilesFunction-* --follow --region us-east-2
+aws logs tail /aws/lambda/FileManagerStack-MetadataRetrievalFunction-* --follow --region us-east-2
 ```
+
+#### **Error Tracking**
+- ✅ **Structured Logging**: JSON format with context
+- ✅ **Error Correlation**: File IDs and request IDs for tracing
+- ✅ **Performance Metrics**: Duration and memory usage logged
+- ✅ **Error Rates**: CloudWatch metrics for failure rates
+
+#### **Structured Error Responses**
+```typescript
+interface ErrorResponse {
+  error: string;
+  error_code: string;
+  timestamp: string;
+  request_id: string;
+  details?: string[];
+  context?: Record<string, any>;
+  retry_after?: number;
+}
+```
+
+### **📊 Error Handling Best Practices Implemented**
+
+- ✅ **Fail Fast**: Input validation at entry points
+- ✅ **Graceful Degradation**: System continues working with partial failures
+- ✅ **Error Isolation**: Component failures don't cascade
+- ✅ **Detailed Logging**: Full context for debugging
+- ✅ **User-Friendly Messages**: Clear error communication
+- ✅ **Proper HTTP Status Codes**: RESTful error responses
+- ✅ **Resource Cleanup**: Finally blocks ensure cleanup
+- ✅ **Timeout Handling**: Reasonable timeouts prevent hanging
 
 ### **🔍 Debugging Common Issues**
 
@@ -383,7 +289,8 @@ aws logs tail /aws/lambda/FileManagerStack-MetadataRetrievalFunction-* --follow
 # Check upload Lambda logs
 aws logs filter-log-events \
   --log-group-name /aws/lambda/FileManagerStack-FileUploadFunction-* \
-  --filter-pattern "ERROR"
+  --filter-pattern "ERROR" \
+  --region us-east-2
 ```
 
 #### **Processing Failures**
@@ -391,7 +298,8 @@ aws logs filter-log-events \
 # Check processing Lambda logs
 aws logs filter-log-events \
   --log-group-name /aws/lambda/FileManagerStack-FileProcessingFunction-* \
-  --filter-pattern "Error processing file"
+  --filter-pattern "Error processing file" \
+  --region us-east-2
 ```
 
 #### **Web Client Issues**
@@ -405,28 +313,112 @@ axios.interceptors.request.use(request => {
 
 The current error handling provides a solid foundation with comprehensive coverage across all system layers! 🛡️
 
-## 🛠️ Development
+## 📊 Component Separation Evaluation
 
-### Build Lambda Functions
-```bash
-cd lambda-functions
-npm install
-npm run build
+### **🎯 Separation of Concerns**
+
+#### **1. Presentation Layer (React Client)**
+- ✅ **Single Responsibility**: Only handles UI/UX and user interactions
+- ✅ **No Business Logic**: Pure presentation with API service abstraction
+- ✅ **Technology Independence**: Can be replaced with any frontend framework
+- ✅ **Clean API Interface**: Uses dedicated service layer (`api.ts`)
+
+```typescript
+// Clean separation - UI only calls API service
+const result = await fileApi.uploadFile(file, metadata);
 ```
 
-### Deploy Changes
-```bash
-./deploy.sh
+#### **2. API Layer (API Gateway)**
+- ✅ **Protocol Abstraction**: Converts HTTP to Lambda events
+- ✅ **Routing Logic**: Maps endpoints to appropriate Lambda functions
+- ✅ **No Business Logic**: Pure routing and protocol translation
+
+#### **3. Business Logic Layer (Lambda Functions)**
+- ✅ **Single Purpose Functions**: Each Lambda has one clear responsibility
+  - **Upload Lambda**: File validation, S3 storage, initial metadata
+  - **List Files Lambda**: Query and return file listings
+  - **Metadata Lambda**: Retrieve complete file metadata
+  - **Processing Lambda**: Extract metadata from uploaded files
+- ✅ **Stateless Design**: No shared state between invocations
+- ✅ **Event-Driven**: Processing triggered by S3 events, not direct calls
+
+#### **4. Data Layer (S3 + DynamoDB)**
+- ✅ **Purpose-Built Storage**: S3 for files, DynamoDB for metadata
+- ✅ **No Business Logic**: Pure data storage and retrieval
+- ✅ **Optimized Access Patterns**: DynamoDB structure optimized for queries
+
+### **🔄 Loose Coupling**
+
+#### **Event-Driven Architecture**
+- ✅ **Asynchronous Processing**: S3 events trigger processing without blocking upload
+- ✅ **Decoupled Components**: Upload doesn't wait for metadata extraction
+- ✅ **Scalable Design**: Each component scales independently
+
+#### **Technology Independence**
+- ✅ **Swappable Components**: Can replace React with Vue, S3 with other storage
+- ✅ **Cloud Agnostic Logic**: Business logic not tied to AWS specifics
+- ✅ **Database Independence**: Could switch from DynamoDB to other NoSQL/SQL
+
+### **🎨 High Cohesion**
+
+#### **Functional Cohesion**
+Each component has a single, well-defined purpose:
+
+```typescript
+// Upload Lambda - Only handles file uploads
+export const handler = async (event: APIGatewayProxyEvent) => {
+  // 1. Parse multipart data
+  // 2. Validate file and metadata  
+  // 3. Store in S3
+  // 4. Save metadata to DynamoDB
+  // 5. Return confirmation
+};
 ```
 
-### Local Development
-```bash
-# Watch mode for Lambda functions
-cd lambda-functions && npm run build:watch
+#### **Data Cohesion**
+- ✅ **Related Data Together**: File metadata stored as single DynamoDB item
+- ✅ **Logical Grouping**: Client metadata vs extracted metadata clearly separated
+- ✅ **Consistent Structure**: All components use same data models
 
-# Web client development
-cd web-client && npm start
+### **🔧 Maintainability**
+
+#### **Independent Development**
+- ✅ **Team Separation**: Frontend, backend, infrastructure teams can work independently
+- ✅ **Technology Choices**: Each layer can use optimal technology stack
+- ✅ **Deployment Independence**: Components can be deployed separately
+
+#### **Error Isolation**
+- ✅ **Fault Tolerance**: One component failure doesn't crash entire system
+- ✅ **Graceful Degradation**: Upload works even if processing fails
+- ✅ **Clear Error Boundaries**: Each layer handles its own error scenarios
+
+### **📈 Scalability**
+
+#### **Independent Scaling**
+- ✅ **Lambda Auto-scaling**: Each function scales based on demand
+- ✅ **Storage Scaling**: S3 and DynamoDB scale automatically
+- ✅ **Frontend Scaling**: React app can be deployed to CDN
+
+#### **Performance Optimization**
+- ✅ **Caching Layers**: API Gateway caching, DynamoDB DAX potential
+- ✅ **Async Processing**: File processing doesn't block user experience
+- ✅ **Optimized Queries**: Flattened metadata structure for fast retrieval
+
+### **🔒 Security Boundaries**
+
+#### **Principle of Least Privilege**
+```typescript
+// Each Lambda has minimal required permissions
+uploadLambda: S3 PutObject, DynamoDB PutItem
+listLambda: DynamoDB Scan
+metadataLambda: DynamoDB GetItem
+processingLambda: S3 GetObject, DynamoDB UpdateItem
 ```
+
+#### **Network Isolation**
+- ✅ **Private Resources**: S3 bucket and DynamoDB not publicly accessible
+- ✅ **API Gateway**: Single public entry point with proper CORS
+- ✅ **VPC Isolation**: Lambda functions can be placed in VPC if needed
 
 ## 📁 Supported File Types
 
@@ -484,40 +476,8 @@ Automatically generated:
 ### **🎯 Project Scope**
 
 This File Manager Service is designed as:
-- **Educational Resource**: Learn serverless patterns
 - **Architecture Demo**: Showcase component separation
 - **Development Tool**: Quick file management for local projects
-- **Proof of Concept**: Foundation for production systems
-
-### **🛡️ Production Authentication Options**
-
-When ready for production, consider these authentication approaches:
-
-#### **Option 1: API Keys (Simple)**
-```typescript
-// Add API key requirement to CDK stack
-const apiKey = new apigateway.ApiKey(this, 'FileManagerApiKey');
-uploadResource.addMethod('POST', uploadIntegration, {
-  apiKeyRequired: true,
-});
-```
-
-#### **Option 2: AWS Cognito (Recommended)**
-```typescript
-// Add Cognito User Pool for full user management
-const userPool = new cognito.UserPool(this, 'FileManagerUserPool', {
-  userPoolName: 'file-manager-users',
-  signInAliases: { email: true },
-});
-```
-
-#### **Option 3: Lambda Authorizer (Custom)**
-```typescript
-// Custom authentication logic
-const authorizer = new apigateway.TokenAuthorizer(this, 'CustomAuthorizer', {
-  handler: authorizerLambda,
-});
-```
 
 ### **🔐 Current Security Features**
 
@@ -525,7 +485,6 @@ Even without authentication, the project includes:
 - ✅ **Private S3 bucket** (no direct public access)
 - ✅ **Unique file IDs** (prevent enumeration attacks)
 - ✅ **Input validation** (file size, metadata format)
-- ✅ **CORS configuration** (controlled web access)
 - ✅ **IAM roles** (minimal required permissions)
 - ✅ **Error handling** (no sensitive data exposure)
 
@@ -541,31 +500,6 @@ Even without authentication, the project includes:
 - Deploy in isolated AWS accounts
 - Monitor CloudWatch logs for unusual activity
 - Implement authentication before production use
-
-### **🛡️ Quick Security Improvements**
-
-For immediate security enhancement:
-
-1. **Restrict CORS origins**:
-```typescript
-defaultCorsPreflightOptions: {
-  allowOrigins: ['http://localhost:3000'], // Only your dev environment
-}
-```
-
-2. **Add rate limiting**:
-```typescript
-const usagePlan = new apigateway.UsagePlan(this, 'FileManagerUsagePlan', {
-  throttle: { rateLimit: 10, burstLimit: 20 },
-});
-```
-
-3. **File type restrictions**:
-```typescript
-const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
-```
-
-**Remember**: This is a **development and learning project**. The open API design is intentional for simplicity and educational purposes! 🎓
 
 ## 🚨 Troubleshooting
 
@@ -607,12 +541,44 @@ aws cloudformation list-stacks --region us-east-2
 curl https://YOUR-API-URL/files
 ```
 
-## 🧹 Cleanup
+### Where to View Logs
 
-Remove all AWS resources:
+#### **AWS CloudWatch Logs (Primary Location)**
+
+**Via AWS Console:**
+1. Go to [AWS CloudWatch Console](https://console.aws.amazon.com/cloudwatch/)
+2. Click **Logs** → **Log groups**
+3. Find your Lambda function log groups:
+   - `/aws/lambda/FileManagerStack-FileUploadFunction-XXXXX`
+   - `/aws/lambda/FileManagerStack-FileProcessingFunction-XXXXX`
+   - `/aws/lambda/FileManagerStack-ListFilesFunction-XXXXX`
+   - `/aws/lambda/FileManagerStack-MetadataRetrievalFunction-XXXXX`
+
+**Via AWS CLI (Real-time):**
 ```bash
-cd file-manager-cdk
-npx cdk destroy
+# View real-time logs for upload function
+aws logs tail /aws/lambda/FileManagerStack-FileUploadFunction-* --follow --region us-east-2
+
+# View logs for all functions
+aws logs tail /aws/lambda/FileManagerStack-FileUploadFunction-* --follow --region us-east-2 &
+aws logs tail /aws/lambda/FileManagerStack-FileProcessingFunction-* --follow --region us-east-2 &
+aws logs tail /aws/lambda/FileManagerStack-ListFilesFunction-* --follow --region us-east-2 &
+aws logs tail /aws/lambda/FileManagerStack-MetadataRetrievalFunction-* --follow --region us-east-2 &
+```
+
+**Filter Logs by Error Level:**
+```bash
+# Only show errors
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/FileManagerStack-FileUploadFunction-* \
+  --filter-pattern "ERROR" \
+  --region us-east-2
+
+# Show specific file uploads
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/FileManagerStack-FileUploadFunction-* \
+  --filter-pattern "{ $.fileId = \"*\" }" \
+  --region us-east-2
 ```
 
 ## 📚 Project Structure
@@ -628,10 +594,6 @@ npx cdk destroy
     ├── src/                # React components
     └── public/             # Static assets
 ```
-
-## 📄 License
-
-MIT License
 
 ## 🏗️ Architectural Decisions & Development Insights
 
@@ -712,7 +674,7 @@ import { createLogger } from './utils/logger';
 #### **5. No Authentication (By Design)**
 **Decision**: Deploy without authentication for development/demo purposes
 **Reasoning**:
-- ✅ **Learning Focus**: Emphasizes serverless architecture patterns
+- ✅ **Developing Focus**: Emphasizes serverless architecture patterns
 - ✅ **Rapid Prototyping**: Quick deployment and testing
 - ✅ **Simplicity**: Reduces complexity for educational purposes
 - ⚠️ **Development Only**: Clearly documented as not production-ready
@@ -737,26 +699,7 @@ function parseMultipartData(event: APIGatewayProxyEvent): ParsedMultipartData {
 - ✅ Custom implementation gives full control over file handling
 - ✅ Proper error handling is crucial for malformed requests
 
-#### **2. TypeScript Compatibility Issues**
-**Challenge**: React Scripts 5.0.1 requires TypeScript ^4.9.5, not ^5.x
-**Error**: `Object.entries()` not available in ES2015 target
-**Solution**: 
-```json
-// tsconfig.json adjustments
-{
-  "compilerOptions": {
-    "target": "ES2017",  // Changed from ES2015
-    "lib": ["ES2017", "DOM"]
-  }
-}
-```
-
-**Lessons Learned**:
-- ✅ Version compatibility matters in TypeScript ecosystems
-- ✅ Target ES version affects available JavaScript features
-- ✅ Always check library compatibility matrices
-
-#### **3. Environment Variables in Lambda**
+#### **1. Environment Variables in Lambda**
 **Challenge**: AWS_REGION environment variable conflicts
 **Issue**: CDK tried to set AWS_REGION, but it's reserved by Lambda runtime
 **Solution**: Let Lambda runtime provide AWS_REGION automatically
@@ -774,23 +717,7 @@ environment: {
 - ✅ Lambda runtime provides standard AWS variables automatically
 - ✅ CDK documentation doesn't always highlight these conflicts
 
-#### **4. CORS Configuration**
-**Challenge**: Web client couldn't access API due to CORS restrictions
-**Solution**: Comprehensive CORS configuration in API Gateway
-```typescript
-defaultCorsPreflightOptions: {
-  allowOrigins: ['*'],
-  allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'X-Amz-Date', 'Authorization', 'X-Api-Key']
-}
-```
-
-**Lessons Learned**:
-- ✅ CORS must be configured at API Gateway level, not just Lambda
-- ✅ Preflight OPTIONS requests need explicit handling
-- ✅ Headers must be explicitly allowed for complex requests
-
-#### **5. File Upload Error Handling**
+#### **2. File Upload Error Handling**
 **Challenge**: React Ant Design Upload component file object structure
 **Issue**: `fileList[0].originFileObj` was undefined in some cases
 **Solution**: Proper UploadFile object creation with validation
@@ -849,46 +776,17 @@ if (contentType.startsWith('image/')) {
 - ✅ Easier to manage resources
 - 🔄 **Future**: Multi-region deployment for production use
 
-#### **5. DynamoDB as Primary Database**
-**Assumption**: DynamoDB's eventual consistency is acceptable
-**Trade-offs**:
-- ✅ **Pros**: Serverless, auto-scaling, fast queries with GSI
-- ❌ **Cons**: Eventual consistency, limited query patterns
-- ✅ **Acceptable**: For file metadata use case, eventual consistency is fine
+#### **5. No File Versioning**
+**Assumption**: Multiple files with the same name are stored as separate entities
+**Current Behavior**: Each upload gets a unique file_id (UUID), allowing multiple files with identical names
 
-#### **6. No File Versioning**
-**Assumption**: File overwrites are acceptable (same filename = replace)
-**Current Behavior**: Each upload gets unique file_id, but same filename overwrites
 **Reasoning**:
-- ✅ Simplifies storage model
-- ✅ Reduces storage costs
-- ❌ No version history
-- 🔄 **Future**: Could implement versioning with S3 versioning feature
+- ✅ **No Data Loss**: Users can upload files with same names without conflicts
+- ✅ **Unique Identification**: Each file has a unique file_id for retrieval
+- ✅ **Simple Storage Model**: No complex versioning logic needed
+- ❌ **No Version History**: No relationship between files with same name
+- 🔄 **Future**: Could implement file versioning by linking related uploads
 
-### **🎓 Lessons Learned**
+## 📄 License
 
-#### **1. Serverless Development Patterns**
-- ✅ **Event-driven architecture** provides better scalability and fault tolerance
-- ✅ **Shared utilities** are crucial for maintaining consistency across functions
-- ✅ **Type safety** prevents many runtime errors in serverless environments
-- ✅ **Proper error handling** is essential when functions can't be debugged interactively
-
-#### **2. AWS CDK Best Practices**
-- ✅ **Resource naming**: Let CDK generate unique names for multi-environment support
-- ✅ **Environment variables**: Understand which variables are reserved by AWS
-- ✅ **IAM permissions**: Follow principle of least privilege
-- ✅ **Stack organization**: Separate concerns into logical constructs
-
-#### **3. Full-Stack Integration**
-- ✅ **API design**: RESTful endpoints with consistent response formats
-- ✅ **Error propagation**: Meaningful errors from backend to frontend
-- ✅ **CORS configuration**: Essential for web client integration
-- ✅ **Type sharing**: Consider sharing types between frontend and backend
-
-#### **4. Development Workflow**
-- ✅ **Build automation**: TypeScript compilation and dependency management
-- ✅ **Deployment scripts**: Automated deployment reduces errors
-- ✅ **Logging strategy**: Structured logging aids debugging and monitoring
-- ✅ **Documentation**: Comprehensive README prevents knowledge loss
-
-This project successfully demonstrates serverless architecture patterns while maintaining clean code practices and comprehensive error handling! 🎯
+MIT License
