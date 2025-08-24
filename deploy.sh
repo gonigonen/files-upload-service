@@ -186,61 +186,53 @@ for service in "${REQUIRED_SERVICES[@]}"; do
     esac
 done
 
-print_section "BUILDING PROJECT"
+print_section "BUILD VALIDATION"
 
-# Build TypeScript Lambda functions
-print_status "Building TypeScript Lambda functions..."
-if [ ! -d "lambda-functions" ]; then
-    print_error "lambda-functions directory not found"
-    print_warning "Please run this script from the project root directory"
+# Check if project has been built
+print_status "Validating project build..."
+
+# Check Lambda functions build
+if [ ! -d "lambda-functions/dist" ]; then
+    print_error "Lambda functions not built"
+    print_warning "Please run './build.sh' first to build the project"
+    print_status "Example: ./build.sh"
     exit 1
 fi
 
-cd lambda-functions
-if [ ! -f "package.json" ]; then
-    print_error "package.json not found in lambda-functions directory"
-    exit 1
-fi
+# Check if all expected Lambda files exist
+EXPECTED_FILES=("upload.js" "list-files.js" "metadata.js" "processor.js")
+for file in "${EXPECTED_FILES[@]}"; do
+    if [ ! -f "lambda-functions/dist/$file" ]; then
+        print_error "Lambda function '$file' not found in build output"
+        print_warning "Please run './build.sh' to rebuild the project"
+        exit 1
+    fi
+done
 
-print_status "Installing Lambda dependencies..."
-if ! npm install; then
-    print_error "Failed to install Lambda dependencies"
-    exit 1
-fi
-
-print_status "Building Lambda functions..."
-if ! npm run build; then
-    print_error "Failed to build Lambda functions"
-    exit 1
-fi
-print_success "✅ Lambda functions built successfully"
-cd ..
-
-# Build CDK project
-print_status "Building CDK project..."
+# Check CDK build
 if [ ! -d "file-manager-cdk" ]; then
     print_error "file-manager-cdk directory not found"
     exit 1
 fi
 
 cd file-manager-cdk
-if [ ! -f "package.json" ]; then
-    print_error "package.json not found in file-manager-cdk directory"
+
+# Check if CDK dependencies are installed
+if [ ! -d "node_modules" ]; then
+    print_error "CDK dependencies not installed"
+    print_warning "Please run './build.sh' first to build the project"
     exit 1
 fi
 
-print_status "Installing CDK dependencies..."
-if ! npm install; then
-    print_error "Failed to install CDK dependencies"
+# Test CDK synthesis to validate build
+print_status "Validating CDK configuration..."
+if ! npx cdk synth --quiet >/dev/null 2>&1; then
+    print_error "CDK configuration validation failed"
+    print_warning "Please run './build.sh' to rebuild the project"
     exit 1
 fi
 
-print_status "Building CDK project..."
-if ! npm run build; then
-    print_error "Failed to build CDK project"
-    exit 1
-fi
-print_success "✅ CDK project built successfully"
+print_success "✅ Build validation passed"
 
 print_section "CDK DEPLOYMENT"
 
